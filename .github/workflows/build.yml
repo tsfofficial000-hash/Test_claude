@@ -150,8 +150,13 @@ jobs:
           mkdir -p dist/x64 dist/x86
           cp build-x64/FanForge.exe build-x64/fanforge-cli.exe dist/x64/
           cp build-x86/FanForge.exe build-x86/fanforge-cli.exe dist/x86/
-          (cd dist/x64 && zip -q ../fanforge-windows-x64.zip FanForge.exe fanforge-cli.exe)
-          (cd dist/x86 && zip -q ../fanforge-windows-x86.zip FanForge.exe fanforge-cli.exe)
+          # The licence has to travel with the binaries, and the README is the
+          # first thing anyone should read before letting this near a Mac.
+          for arch in x64 x86; do
+            cp README.md LICENSE NOTICE dist/$arch/
+          done
+          (cd dist/x64 && zip -q ../fanforge-windows-x64.zip FanForge.exe fanforge-cli.exe README.md LICENSE NOTICE)
+          (cd dist/x86 && zip -q ../fanforge-windows-x86.zip FanForge.exe fanforge-cli.exe README.md LICENSE NOTICE)
 
       - name: Publish the release
         uses: softprops/action-gh-release@v2
