@@ -131,6 +131,33 @@ TEST(csv_reports_a_bad_path_instead_of_throwing) {
     CHECK(recorder.rowsWritten() == 0);
 }
 
+TEST(csv_row_count_survives_close_and_starts_over_on_reopen) {
+    CsvRecorder recorder;
+    CHECK(recorder.open(kTempCsv));
+    recorder.setHeader({"a"});
+    recorder.writeRow({1.0});
+    recorder.writeRow({2.0});
+    recorder.close();
+
+    // Callers report the count *after* closing. Resetting it in close() made
+    // every one of those reports say "0 rows" while the file itself was fine.
+    CHECK(recorder.rowsWritten() == 2);
+
+    // Reopening starts a new, truncated log, so the count starts again too, and
+    // the caller supplies a header for the new file - reusing the previous
+    // log's columns would be worse than having none.
+    CHECK(recorder.open(kTempCsv));
+    CHECK(recorder.rowsWritten() == 0);
+    recorder.setHeader({"a"});
+    recorder.writeRow({3.0});
+    CHECK(recorder.rowsWritten() == 1);
+    recorder.close();
+
+    const std::string text = readAll(kTempCsv);
+    CHECK(text == "a\n3.00\n");   // the earlier rows were truncated away
+    std::remove(kTempCsv);
+}
+
 TEST(csv_flush_persists_without_an_explicit_close) {
     {
         CsvRecorder recorder;

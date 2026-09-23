@@ -38,14 +38,27 @@ machine.
 
 | What | Status |
 |---|---|
-| Unit and integration tests | **156 tests, 1143 checks, all passing** |
+| Unit and integration tests | **162 tests, 1164 checks, all passing** |
 | Same tests on the Windows binaries, under Wine | **Passing** |
 | Address sanitizer + undefined behaviour sanitizer | **Clean** |
 | Cross-compiled to real Windows executables (x86-64 and x86) | **Yes, zero warnings** |
-| Whole control loop against a simulated machine | **Yes — see `simulate`** |
+| Whole control loop against a simulated machine | **Yes — `fanforge-cli simulate`** |
+| **The shipped `.exe` driving a real SMC protocol** | **Yes — 17/17 checks, see `tools/fake_smc`** |
+| **The GUI window opening and driving the fans** | **Yes — verified under a virtual display** |
 | Access paths implemented | **Two: `\\.\APPLESMC` and raw port I/O (InpOut32 / WinRing0)** |
 | Any SMC write executed against real Mac hardware | **No — never** |
 | Fan curve left running on a real Mac for hours | **No — never** |
+
+That fake-SMC row is the important one. The port-I/O path cannot be executed on
+a machine that is not a Mac, so for a long time it had never run at all — and a
+code path that cannot be executed is not a tested code path. `tools/fake_smc`
+implements the SMC's register state machine as a drop-in `inpoutx64.dll`, and
+`tools/fake_smc/run_e2e.sh` drives the *shipped* executables against it: the real
+loader, the real poll loop, the real transaction framing, the real controller, and
+the real window. The first time it ran it found a crash that took down every
+command of the command-line tool on a **successful** SMC connection — which is why
+it never showed up on any machine without a Mac's SMC, and would have appeared on
+yours immediately.
 
 If it does something wrong on your machine, `fanforge-cli.exe auto` hands every fan
 back to the firmware, and the app does that by itself on exit, on logoff, and on
@@ -404,6 +417,23 @@ What the tests actually cover:
 - **The whole loop**, closed, against a thermal model — including that it always
   lets go of the fans at the end.
 
+### The shipped binaries, against a fake SMC
+
+```
+cmake -S . -B build-win -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake
+cmake --build build-win -j
+tools/fake_smc/run_e2e.sh build-win
+```
+
+This is the only test that runs the port-I/O path, the write path and the window
+at all. It checks that the tool finds the access path, reads the fan count, labels,
+ranges and control style, filters the SMC's `-127` dead-sensor sentinel, confirms
+the write path with the non-destructive selftest, **reports a swallowed write as a
+failure rather than a success**, writes fan targets from the control loop, hands
+the fans back on exit, writes the CSV log, opens the real main window, and — from
+the GUI — actually writes to the SMC. See
+[tools/fake_smc/README.md](tools/fake_smc/README.md).
+
 Sanitizers:
 
 ```
@@ -414,8 +444,10 @@ cmake --build build-asan -j && ./build-asan/fanforge_tests
 
 CI runs the suite natively, then again **as a Windows binary under Wine**, then
 runs the full control loop as a Windows binary, then checks that `--check` fails
-correctly on a machine with no Boot Camp drivers. The Windows executables are
-attached to every run, and to a release when you push a tag.
+correctly on a machine with no Boot Camp drivers, and then runs the whole
+**fake-SMC harness above**, so the port-I/O path and the GUI are exercised on
+every push. The Windows executables are attached to every run, and to a release
+when you push a tag.
 
 ---
 

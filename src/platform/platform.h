@@ -37,6 +37,12 @@ public:
 
     // Move-only: the session owns a device handle and, possibly, a loaded
     // helper driver.
+    //
+    // A moved-from session stays safe to use and to destroy. That is not a
+    // detail: the command line tool hands one out of a std::optional, which
+    // moves it and then destroys the original at the end of the function, so a
+    // moved-from session that could not be destroyed safely would crash every
+    // command that successfully opened the SMC.
     SmcSession(SmcSession&& other) noexcept;
     SmcSession& operator=(SmcSession&& other) noexcept;
     SmcSession(const SmcSession&) = delete;

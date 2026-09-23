@@ -109,6 +109,19 @@ jobs:
             exit 1
           fi
 
+      # The only place the port-I/O path, the write path and the window are
+      # executed at all: the shipped binaries driven against a fake SMC that
+      # implements the chip's register state machine. The first run of this found
+      # a crash that happened only on a *successful* SMC connection, and so never
+      # appeared on any machine that is not a Mac.
+      - name: Install what the end-to-end harness needs
+        if: matrix.run_wine
+        run: sudo apt-get install -y xvfb x11-utils
+
+      - name: Drive the real binaries against a simulated SMC
+        if: matrix.run_wine
+        run: tools/fake_smc/run_e2e.sh build-win
+
       - name: Upload the executables
         uses: actions/upload-artifact@v4
         with:

@@ -99,9 +99,12 @@ add_executable(fanforge_tests
   tests/test_config.cpp
   tests/test_selftest.cpp
   tests/test_units_csv.cpp
+  tests/test_session.cpp
   tests/test_simulation.cpp
 )
-target_link_libraries(fanforge_tests PRIVATE fanforge_core)
+# The session lifecycle lives in the platform unit, and the tests have to link
+# the same one the tool does.
+target_link_libraries(fanforge_tests PRIVATE fanforge_platform)
 fanforge_warnings(fanforge_tests)
 
 add_test(NAME fanforge_tests COMMAND fanforge_tests)

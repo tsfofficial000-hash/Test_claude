@@ -429,10 +429,28 @@ struct SmcSession::State {
 SmcSession::SmcSession() : state_(new State()) {}
 SmcSession::~SmcSession() { close(); }
 
-SmcSession::SmcSession(SmcSession&& other) noexcept = default;
-SmcSession& SmcSession::operator=(SmcSession&& other) noexcept = default;
+SmcSession::SmcSession(SmcSession&& other) noexcept : state_(std::move(other.state_)) {}
+
+SmcSession& SmcSession::operator=(SmcSession&& other) noexcept {
+    if (this != &other) {
+        // Let go of what this session was holding first. The defaulted move
+        // assignment would drop the old state - and the open device handle
+        // inside it - on the floor without closing it.
+        close();
+        state_ = std::move(other.state_);
+    }
+    return *this;
+}
 
 void SmcSession::close() {
+    // A moved-from session has no state at all, and being destroyed is a
+    // perfectly normal thing for one to do: the move constructor empties the
+    // source, and the source is still destroyed at the end of its scope. Every
+    // member has to tolerate that, or the source crashes the instant its scope
+    // ends - which is exactly what happened the first time the SMC was reachable
+    // and the move was taken.
+    if (!state_) return;
+
     if (state_->applesmc) state_->applesmc->close();
     if (state_->device) state_->device->close();
     state_->applesmc.reset();
@@ -442,15 +460,21 @@ void SmcSession::close() {
     state_->active = nullptr;
 }
 
-ISmcTransport* SmcSession::transport() const { return state_->active; }
+ISmcTransport* SmcSession::transport() const { return state_ ? state_->active : nullptr; }
 
-const std::vector<TransportAttempt>& SmcSession::attempts() const { return state_->attempts; }
+const std::vector<TransportAttempt>& SmcSession::attempts() const {
+    static const std::vector<TransportAttempt> kNone;
+    return state_ ? state_->attempts : kNone;
+}
 
 std::string SmcSession::activeName() const {
-    return state_->active ? state_->active->name() : "none";
+    if (!state_ || !state_->active) return "none";
+    return state_->active->name();
 }
 
 std::string SmcSession::summary() const {
+    if (!state_) return "no session state\n";
+
     std::string out;
     for (const TransportAttempt& attempt : state_->attempts) {
         out += attempt.name;
@@ -461,6 +485,10 @@ std::string SmcSession::summary() const {
 }
 
 bool SmcSession::open() {
+    // A session that has been moved from has no state; give it some rather than
+    // refusing to work, so that "moved from" is a usable state and not a trap.
+    if (!state_) state_ = std::make_unique<State>();
+
     close();
     state_->attempts.clear();
 

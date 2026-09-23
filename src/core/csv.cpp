@@ -29,6 +29,10 @@ std::string CsvRecorder::escapeCell(const std::string& text) {
 
 bool CsvRecorder::open(const std::string& path) {
     close();
+    // A new log starts from zero. This lives here rather than in close()
+    // because closing does not un-write anything: the row count is how a caller
+    // reports what it just logged, and it is read after the close.
+    rowsWritten_ = 0;
     path_ = path;
     if (path.empty()) {
         error_ = "no log path was given";
@@ -52,7 +56,8 @@ void CsvRecorder::close() {
     }
     headerWritten_ = false;
     headerPending_ = false;
-    rowsWritten_ = 0;
+    // rowsWritten_ deliberately survives: reporting the count happens after
+    // this call, and resetting it here made every report say "0 rows".
 }
 
 void CsvRecorder::setHeader(const std::vector<std::string>& columns) {
