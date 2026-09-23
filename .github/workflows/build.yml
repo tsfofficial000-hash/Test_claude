@@ -1,0 +1,171 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # The portable engine and its test suite. This is the job that decides whether
+  # a change is any good.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Run the test suite
+        run: ./build/fanforge_tests
+
+      - name: Run the whole control loop against a simulated machine
+        run: ./build/fanforge-cli simulate 90
+
+  # ---------------------------------------------------------------------------
+  # The Windows binaries. Both architectures, because Boot Camp was 32-bit for
+  # long enough that it cannot be ruled out.
+  # ---------------------------------------------------------------------------
+  windows:
+    name: Windows ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            toolchain: cmake/mingw-w64-x86_64.cmake
+            package: g++-mingw-w64-x86-64
+            run_wine: true
+            artifact: fanforge-windows-x64
+          - arch: i686
+            toolchain: cmake/mingw-w64-i686.cmake
+            package: g++-mingw-w64-i686
+            run_wine: false
+            artifact: fanforge-windows-x86
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.package }}
+
+      - name: Configure
+        run: >
+          cmake -S . -B build-win
+          -DCMAKE_TOOLCHAIN_FILE=${{ matrix.toolchain }}
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-win -j"$(nproc)"
+
+      - name: Confirm the binaries are Windows executables
+        run: |
+          file build-win/FanForge.exe build-win/fanforge-cli.exe
+          # 'PE32' covers both 'PE32' (x86) and 'PE32+' (x86-64).
+          file build-win/FanForge.exe | grep -q 'PE32' \
+            || { echo "FanForge.exe is not a Windows executable"; exit 1; }
+          file build-win/FanForge.exe | grep -q 'GUI' \
+            || { echo "FanForge.exe is not a GUI-subsystem binary"; exit 1; }
+
+      # The strongest check available without Intel Mac hardware: run the real
+      # Windows binaries and see the real engine pass the real test suite.
+      - name: Run the test suite as a Windows binary
+        if: matrix.run_wine
+        run: |
+          sudo apt-get install -y wine
+          export WINEDEBUG=-all
+          export WINEPREFIX="$PWD/wineprefix"
+          wine build-win/fanforge_tests.exe
+
+      - name: Run the control loop as a Windows binary
+        if: matrix.run_wine
+        run: |
+          export WINEDEBUG=-all
+          export WINEPREFIX="$PWD/wineprefix"
+          wine build-win/fanforge-cli.exe simulate 90
+
+      # On a machine with no Boot Camp drivers, both access paths must fail with
+      # a message that tells the user what to install.
+      - name: Check the failure path the way a real user meets it
+        if: matrix.run_wine
+        run: |
+          export WINEDEBUG=-all
+          export WINEPREFIX="$PWD/wineprefix"
+          if wine build-win/FanForge.exe --check; then
+            echo "expected --check to report that no SMC access path is available"
+            exit 1
+          fi
+
+      - name: Upload the executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            build-win/FanForge.exe
+            build-win/fanforge-cli.exe
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Pushing a tag attaches the same executables to a release, so there is a
+  # stable download link rather than an expiring artifact.
+  # ---------------------------------------------------------------------------
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the cross compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-mingw-w64
+
+      - name: Build 64-bit
+        run: |
+          cmake -S . -B build-x64 -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-x64 -j"$(nproc)"
+
+      - name: Build 32-bit
+        run: |
+          cmake -S . -B build-x86 -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-i686.cmake -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-x86 -j"$(nproc)"
+
+      - name: Assemble the release assets
+        run: |
+          mkdir -p dist/x64 dist/x86
+          cp build-x64/FanForge.exe build-x64/fanforge-cli.exe dist/x64/
+          cp build-x86/FanForge.exe build-x86/fanforge-cli.exe dist/x86/
+          (cd dist/x64 && zip -q ../fanforge-windows-x64.zip FanForge.exe fanforge-cli.exe)
+          (cd dist/x86 && zip -q ../fanforge-windows-x86.zip FanForge.exe fanforge-cli.exe)
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/fanforge-windows-x64.zip
+            dist/fanforge-windows-x86.zip
+          generate_release_notes: true
+          body: |
+            FanForge builds for Windows, cross-compiled from a Linux runner with
+            MinGW-w64 and statically linked - the executables have no runtime
+            dependencies.
+
+            FanForge control has not been run on real Intel Mac hardware by the
+            author. Run `FanForge.exe --check` first: it reports which of the two
+            SMC access paths your machine provides and prints each fan's reported
+            speed range, without driving anything.

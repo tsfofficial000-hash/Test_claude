@@ -1,0 +1,18 @@
+# Build output
+build/
+build-*/
+cmake-build-*/
+
+# Local Wine prefixes used to verify the Windows binaries
+wineprefix/
+.wine/
+
+# Reference checkouts kept while developing. These are other people's projects,
+# cloned for reading; they are not part of this one.
+reference/
+
+# Test scratch
+fanforge-test-config.ini
+*.o
+*.obj
+*.exe

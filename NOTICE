@@ -1,0 +1,98 @@
+FanForge
+Copyright (c) 2026 the FanForge contributors
+
+This product includes software developed by third parties, and was written with
+reference to third-party documentation of the Apple SMC. This file records which
+is which, because the distinction matters for the licence.
+
+================================================================================
+1. What FanForge actually contains
+================================================================================
+
+FanForge contains no third-party source code. Every source file under `src/` and
+`tests/` was written for this project.
+
+It links against nothing but the C++ standard library and, on Windows, the
+operating system. It ships no bundled driver: the port-I/O path loads InpOut32 or
+WinRing0 at runtime *if the user has installed one*, and the preferred path uses
+the `\\.\APPLESMC` device that Apple's own Boot Camp support software publishes.
+Neither is distributed here.
+
+================================================================================
+2. Protocol facts, and why they are not code
+================================================================================
+
+The SMC's register interface — the I/O port pair, the status bits, the command
+bytes, the key names, the type encodings — is an interface to hardware that
+already exists. The values of that interface were reverse-engineered by others
+and documented publicly. Those values are facts, and facts are not copyrightable
+expression; the same ones appear independently in several licences.
+
+FanForge was written from the following public documentation of that interface.
+Facts and design lessons were taken, not code:
+
+  * Linux kernel, drivers/hwmon/applesmc.c
+      Copyright (C) 2007 Nicolas Boichat, (C) 2010 Henrik Rydberg
+      Licence: GPL-2.0-only
+      Used for: the port protocol. Port pair 0x300/0x304; status bits
+      SMC_STATUS_AWAITING_DATA (0x01), SMC_STATUS_IB_CLOSED (0x02),
+      SMC_STATUS_BUSY (0x04); command bytes READ (0x10), WRITE (0x11),
+      GET_KEY_BY_INDEX (0x12), GET_KEY_TYPE (0x13); the four-byte key argument
+      followed by a length byte; the trailing flush loop; and the ten-fan cap.
+
+  * Linux kernel, Apple T2 SMC driver (as cited in RPMAC's source)
+      Used for: the observation that `flt` values are native little-endian IEEE-754
+      by both the port and MMIO paths, while the fixed-point families are
+      big-endian.
+
+  * Apple's `AppleSMC` interface, as documented in the Darwin sources
+      Used for: the `\\.\APPLESMC` IOCTL contract and the key enumeration model.
+
+  * charlie754/mac-fan-control-windows (MacFanCtl)
+      Licence: MIT
+      Used for: the IOCTL codes and request struct layouts (read request = key +
+      size; write request = key + size + payload; the six-byte key-info response;
+      the big-endian key-by-index argument), verified by its author on a
+      MacBookPro14,3, and the report that the device path also works on a T2
+      MacBookPro15,1.
+
+  * golirt1/RPMAC
+      Licence: GPL-2.0-only
+      Used for: the cross-process SMC mutex name `Global\AppleSmcAccess`
+      (published by that project explicitly so other tools can adopt it), the
+      per-fan `F<n>Md` manual-control path on T2 machines, and the fan-sensor
+      plausibility bounds (`mn` may be 0 because some fans can stop; `mx` and `ac`
+      up to 20000).
+
+  * bmats/fancontrol, and the smcFanControl / HWSensors lineage via publication
+      Used for: how manual fan control is expressed on these machines — the `FS!`
+      force mask and the `F<n>Tg` target key.
+
+================================================================================
+3. What was deliberately not done
+================================================================================
+
+Macs Fan Control (CrystalIDEA) is closed-source, and was not decompiled, not
+disassembled and not otherwise reverse-engineered. It is a *product* reference for
+which features a fan control application should have. Its source was never
+consulted, and none of its code or data appears here.
+
+This was a deliberate choice and not only a legal one: the sources listed above
+are better. Their protocol observations come attached to the specific hardware
+they were verified on, and they are readable, which the binary is not.
+
+================================================================================
+4. Licence position
+================================================================================
+
+Two of the sources above are GPL-2.0. Because only interface facts were taken from
+them, and because every line of FanForge is independently written in a different
+language and a different architecture from the reference works, FanForge is not a
+derivative work of them and is distributed under the MIT licence (see LICENSE).
+
+The same interface facts appear independently in the MIT-licensed MacFanCtl,
+which is an additional reason to be confident that they are interface, not
+expression.
+
+If you believe something here is mistaken, please open an issue rather than
+guessing at intent: the goal is to be correct about this, and it is easy to fix.
